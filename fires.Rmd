@@ -1,0 +1,118 @@
+---
+title: "Final Project"
+author: "Felicia Cruz"
+date: "11/16/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(here)
+```
+
+```{r}
+# read in dataset from Kaggle 
+fires <- read_csv(here("California_Fire_Incidents.csv"))
+```
+
+```{r}
+# summary stats of mean acreage burned by year 
+burned_mean <- fires %>% 
+  group_by(ArchiveYear) %>% 
+  summarize(mean_acres_burned = mean(AcresBurned, na.rm=TRUE))
+```
+
+```{r}
+# work with locations
+
+fires$north_south <- 0
+ 
+# want 0 if North and 1 for South 
+fires$north_south <- replace(fires$north_south,
+                             fires$Latitude > 36,
+                             "North")
+fires$north_south <- replace(fires$north_south,
+                             fires$north_south == 0,
+                             "South")
+```
+
+```{r}
+# average acres burned by year and north_south
+
+burned_mean_regions <- fires %>% 
+  group_by(ArchiveYear, north_south) %>% 
+  summarize(mean_acres_burned = mean(AcresBurned, na.rm=TRUE))
+
+
+ggplot(burned_mean_regions, aes(x = ArchiveYear, y = mean_acres_burned, color = north_south)) +
+  geom_line() +
+  labs(title = "Average Acres Burned by Year",
+       color = "",
+       x = "Year",
+       y = "Mean Acres Burned")
+```
+
+```{r}
+# take out the two out of the correct date range 
+fires_2 <- fires %>% 
+  filter(UniqueId != "fcb8579e-7469-4c9e-9eac-527264e6f26b",
+         UniqueId != "49232e73-c3ba-4dc3-b673-b973a918fa7c")
+
+# scatterplot of all wildfire events 
+ggplot(fires_2, aes(x = Started, y = AcresBurned, color = north_south)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "Wildfire Events in California (2013-2019)",
+       color = "",
+       x = "Started",
+       y = "Acres Burned")
+```
+
+```{r}
+ggplot(fires_2, aes(x = Started, y = AcresBurned)) +
+  geom_line()
+
+
+```
+```{r}
+# Number of fires per year 
+
+year_totals <- fires_2 %>% 
+  group_by(ArchiveYear) %>% 
+  summarize(count = n())
+
+
+ggplot(year_totals, aes(x = ArchiveYear, y = count)) +
+  geom_line()
+```
+
+
+
+# Run a regression 
+
+```{r}
+lm(AcresBurned ~ Started, data = fires)
+
+```
+
+```{r}
+# regression for North 
+
+fires_north <- fires %>% 
+  filter(north_south == "North")
+
+lm(AcresBurned ~ Started, data = fires_north)
+```
+
+```{r}
+# regression for South
+fires_south <- fires %>% 
+  filter(north_south == "South")
+
+lm(AcresBurned ~ Started, data = fires_south)
+```
+

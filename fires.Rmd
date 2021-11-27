@@ -13,28 +13,66 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(lubridate)
 library(here)
+library(janitor)
+library(lubridate)
+library(broom)
 ```
+
+### Is there a difference in wildfire intensity in Northern California vs Southern California? 
 
 ```{r}
 # read in dataset from Kaggle 
-fires <- read_csv(here("California_Fire_Incidents.csv"))
+fires <- read_csv(here("California_Fire_Incidents.csv")) %>% 
+  clean_names()
+
+# make a year_started column 
+fires$started <- lubridate::as_datetime(fires$started)
+fires <- fires %>% 
+  mutate(started_year = lubridate::year(started))
+
+# remove 1969 start years 
+fires <- fires %>% 
+  filter(started_year != 1969)
 ```
 
+
 ```{r}
-# summary stats of mean acreage burned by year 
+fires$extinguished <- lubridate::as_datetime(fires$extinguished)
+
+# make duration column 
+
+fires <- fires %>% 
+  mutate(duration = difftime(extinguished, started, units = c("days")))
+
+  
+```
+
+
+```{r}
+fires %>% 
+  filter(unique_id != "af8f8070-a3d6-4ca2-8e2b-6da1049a5bea",
+         unique_id != "f136ba8d-f6bb-4bad-9815-1d56f9dc8650") %>% 
+  ggplot(aes(x = started, y = duration)) +
+  geom_point()
+
+```
+
+
+```{r}
+# summary stats of mean acreage burned by started_year 
 burned_mean <- fires %>% 
-  group_by(ArchiveYear) %>% 
-  summarize(mean_acres_burned = mean(AcresBurned, na.rm=TRUE))
+  group_by(started_year) %>% 
+  summarize(mean_acres_burned = mean(acres_burned, na.rm=TRUE))
 ```
 
 ```{r}
-# work with locations
+# establish locations North and South 
 
 fires$north_south <- 0
  
 # want 0 if North and 1 for South 
 fires$north_south <- replace(fires$north_south,
-                             fires$Latitude > 36,
+                             fires$latitude > 36,
                              "North")
 fires$north_south <- replace(fires$north_south,
                              fires$north_south == 0,
@@ -45,11 +83,11 @@ fires$north_south <- replace(fires$north_south,
 # average acres burned by year and north_south
 
 burned_mean_regions <- fires %>% 
-  group_by(ArchiveYear, north_south) %>% 
-  summarize(mean_acres_burned = mean(AcresBurned, na.rm=TRUE))
+  group_by(started_year, north_south) %>% 
+  summarize(mean_acres_burned = mean(acres_burned, na.rm=TRUE))
 
 
-ggplot(burned_mean_regions, aes(x = ArchiveYear, y = mean_acres_burned, color = north_south)) +
+ggplot(burned_mean_regions, aes(x = started_year, y = mean_acres_burned, color = north_south)) +
   geom_line() +
   labs(title = "Average Acres Burned by Year",
        color = "",
@@ -58,13 +96,8 @@ ggplot(burned_mean_regions, aes(x = ArchiveYear, y = mean_acres_burned, color = 
 ```
 
 ```{r}
-# take out the two out of the correct date range 
-fires_2 <- fires %>% 
-  filter(UniqueId != "fcb8579e-7469-4c9e-9eac-527264e6f26b",
-         UniqueId != "49232e73-c3ba-4dc3-b673-b973a918fa7c")
-
 # scatterplot of all wildfire events 
-ggplot(fires_2, aes(x = Started, y = AcresBurned, color = north_south)) +
+ggplot(fires, aes(x = started, y = acres_burned, color = north_south)) +
   geom_point(alpha = 0.5) +
   labs(title = "Wildfire Events in California (2013-2019)",
        color = "",
@@ -73,20 +106,18 @@ ggplot(fires_2, aes(x = Started, y = AcresBurned, color = north_south)) +
 ```
 
 ```{r}
-ggplot(fires_2, aes(x = Started, y = AcresBurned)) +
+ggplot(fires, aes(x = started, y = acres_burned)) +
   geom_line()
-
-
 ```
 ```{r}
 # Number of fires per year 
 
-year_totals <- fires_2 %>% 
-  group_by(ArchiveYear) %>% 
+year_totals <- fires %>% 
+  group_by(started_year) %>% 
   summarize(count = n())
 
 
-ggplot(year_totals, aes(x = ArchiveYear, y = count)) +
+ggplot(year_totals, aes(x = started_year, y = count)) +
   geom_line()
 ```
 
@@ -95,7 +126,7 @@ ggplot(year_totals, aes(x = ArchiveYear, y = count)) +
 # Run a regression 
 
 ```{r}
-lm(AcresBurned ~ Started, data = fires)
+summary(lm(acres_burned ~ started, data = fires))
 
 ```
 
@@ -105,7 +136,7 @@ lm(AcresBurned ~ Started, data = fires)
 fires_north <- fires %>% 
   filter(north_south == "North")
 
-lm(AcresBurned ~ Started, data = fires_north)
+summary(lm(acres_burned ~ started, data = fires_north))
 ```
 
 ```{r}
@@ -113,6 +144,54 @@ lm(AcresBurned ~ Started, data = fires_north)
 fires_south <- fires %>% 
   filter(north_south == "South")
 
-lm(AcresBurned ~ Started, data = fires_south)
+summary(lm(acres_burned ~ started, data = fires_south)) 
 ```
+
+```{r}
+mod <- lm(acres_burned ~ started + north_south + started*north_south, data = fires)
+summary(mod)
+
+```
+
+```{r}
+ggplot(data = fires, aes(x = started, y = acres_burned, color = north_south)) +
+  geom_point(alpha = 0.4) +
+  geom_line(data = augment(mod), aes(y = .fitted, color = north_south))
+
+#ggsave("regression_plot.png", width = 5, height = 10)
+```
+
+## Are California wildfires more intense in the North or in the South? 
+
+**Motivate the question / Introduction**
+Growing up in the Antelope Valley, located in the Mojave Desert at the northern edge of LA County, I experienced wildfires at a very young age. As I grew up, orange haze outside, flying ash, and evacuation announcements on the news were not out of the ordinary during the later summer months. I will never forget taking a day trip to the beach with my family one summer only to come home to barricades outside our neighborhood because a wildfire had jumped the nearby ridge deeming it unsafe to enter. While our house, and my dog inside, was thankfully intact, we were reminded of the event for months by the charred hill next to our house. 
+
+The statistics describing the frequency, intensity, and destructiveness of California wildfires are alarming to say the least, and are all likely to be further exacerbated by the climate crisis in the years to come. As temperature and droughts increase with elevated greenhouse gas emissions, it is probable that we can expect more wildfires in the future, especially with the fire seasons getting longer. 
+
+In the past couple decades, California's wildfire season has progressively gotten worse. In recent years especially, fires seem to be getting both more intense and more frequent. For example, the 2017 season was the most destructive wildfire season on record at the time, with 1.2 million acres burned. The largest fire during that season was the Thomas Fire in Santa Barbara County, which was California's largest modern wildfire at the time. In 2020, 4.2 million acres were burned, amounting to more than 4% of the state's total land. This resulted in 2020 being the largest wildfire season recorded in California's modern history. The August 2020 Complex Fire alone burned more than 1 million acres, making it the first "gigafire" on record. 
+
+Each year, I hear and read about wildfires all over California. Just this year, I remember talking with some friends about hazy air quality in Santa Barbara. We were wondering if it was due to smoke from fires in the north or the south because there were many wildfires burning at the time.
+
+I am interested in how California wildfires have changed over time, and if this change is different in the north than in the south. Are California wildfires more intense in the northern part of the state or in the south? Is there a difference in trends between start date and acres burned for fires in the north versus fires in the South? 
+
+From my preliminary research, there does not seem to be existing evidence on this question. While many articles discuss factors that contribute to the growing wildfires in California, there is not much to be said about how geographic location is potentially correlated with changes in wildfires over time.
+
+**Describe the data**
+To explore changes in California's wildfire season and compare trends in the North to the South, I will be using a dataset which contains over 1600 wildfire events in the state between 2013 and 2020. This dataset is made available on Kaggle.com and was originally scraped from records on the CAL FIRE website. For each fire, this dataset contains 40 variables; for the purposes of this analysis, the most relevant variables include latitude and longitude, start date, extinguished date, and acres burned. A potential limitation of this dataset is that it only includes wildfires responded to by CAL FIRE; many wildfire events that contribute to the time series trends in the north and the south may not be included in this dataset.
+
+**Analysis Plan**
+To assess the effects of wildfire start date and location on the number of acres burned, I will be using the following interaction model:
+
+$$acresburned_i=\beta_{0}+\beta_{1} \cdot started_i + \beta_{2} \cdot northsouth_i + \beta_{3} \cdot started_i \cdot northsouth_i + \varepsilon_i$$
+The variable `north_south` takes on a value of "North" for all wildfires occurring above 36 degrees latitude, and everything below this is assigned "South". 
+
+**Summarize Results**
+
+**What Next?**
+- more years of fire data 
+
+**References**
+https://www.fire.ca.gov/incidents/2018/
+https://www.fire.ca.gov/incidents/2020/
+https://www.latimes.com/california/story/2020-10-01/northern-california-fire-season-less-rain-than-southern-california 
 
